@@ -19,29 +19,49 @@ import (
 
 var errUnknownEncodingExtension = errors.New("unknown encoding extension")
 
-func getTracesMarshaler(encoding string, host component.Host) (marshaler.TracesMarshaler, error) {
+// defaultEstimatedHeaderOverhead is a reserve for Kafka record headers
+const estimatedKafkaHeadersOverhead = 1024
+
+// getTracesMarshaler returns a TracesMarshaler for the given encoding. When maxMessageBytes > 0,
+// the returned marshaler is wrapped to enforce that no message exceeds the full record limit
+// (key + value + headers), splitting into span-level messages when necessary.
+func getTracesMarshaler(encoding string, host component.Host, maxMessageBytes, estimatedHeaderOverhead int) (marshaler.TracesMarshaler, error) {
+	var innerMarshaler marshaler.TracesMarshaler
 	if m, err := loadEncodingExtension[ptrace.Marshaler](host, encoding, "traces"); err != nil {
 		if !errors.Is(err, errUnknownEncodingExtension) {
 			return nil, err
 		}
 	} else {
-		return marshaler.NewPdataTracesMarshaler(m), nil
+		innerMarshaler = marshaler.NewPdataTracesMarshaler(m)
 	}
-	switch encoding {
-	case "otlp_proto":
-		return marshaler.NewPdataTracesMarshaler(&ptrace.ProtoMarshaler{}), nil
-	case "otlp_json":
-		return marshaler.NewPdataTracesMarshaler(&ptrace.JSONMarshaler{}), nil
-	case "zipkin_proto":
-		return marshaler.NewPdataTracesMarshaler(zipkinv2.NewProtobufTracesMarshaler()), nil
-	case "zipkin_json":
-		return marshaler.NewPdataTracesMarshaler(zipkinv2.NewJSONTracesMarshaler()), nil
-	case "jaeger_proto":
-		return marshaler.JaegerProtoSpanMarshaler{}, nil
-	case "jaeger_json":
-		return marshaler.JaegerJSONSpanMarshaler{}, nil
+	if innerMarshaler == nil {
+		switch encoding {
+		case "otlp_proto":
+			innerMarshaler = marshaler.NewPdataTracesMarshaler(&ptrace.ProtoMarshaler{})
+		case "otlp_json":
+			innerMarshaler = marshaler.NewPdataTracesMarshaler(&ptrace.JSONMarshaler{})
+		case "zipkin_proto":
+			innerMarshaler = marshaler.NewPdataTracesMarshaler(zipkinv2.NewProtobufTracesMarshaler())
+		case "zipkin_json":
+			innerMarshaler = marshaler.NewPdataTracesMarshaler(zipkinv2.NewJSONTracesMarshaler())
+		case "jaeger_proto":
+			innerMarshaler = marshaler.JaegerProtoSpanMarshaler{}
+		case "jaeger_json":
+			innerMarshaler = marshaler.JaegerJSONSpanMarshaler{}
+		default:
+			return nil, fmt.Errorf("unrecognized traces encoding %q", encoding)
+		}
 	}
-	return nil, fmt.Errorf("unrecognized traces encoding %q", encoding)
+
+	// Wrap the marshaler in a size limiting marshaler so traces gets split into multiple messages
+	// and don't get rejected by the Kafka broker.
+	if maxMessageBytes > 0 {
+		if estimatedHeaderOverhead <= 0 {
+			estimatedHeaderOverhead = estimatedKafkaHeadersOverhead
+		}
+		return marshaler.NewSizeLimitingTracesMarshaler(innerMarshaler, maxMessageBytes, estimatedHeaderOverhead), nil
+	}
+	return innerMarshaler, nil // TODO: maybe we should enable this by default? Kafka broker always has a message size limit
 }
 
 func getMetricsMarshaler(encoding string, host component.Host) (marshaler.MetricsMarshaler, error) {

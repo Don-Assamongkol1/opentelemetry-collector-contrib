@@ -99,7 +99,7 @@ func TestGetTracesMarshaler(t *testing.T) {
 	// Specifying an extension for a different type should fail fast.
 	m, err = getTracesMarshaler("otlp_proto", extensionsHost{
 		component.MustNewID("otlp_proto"): struct{ component.Component }{},
-	})
+	}, 0, 0)
 	require.EqualError(t, err, `extension "otlp_proto" is not a traces marshaler`)
 	assert.Nil(t, m)
 }
@@ -155,7 +155,7 @@ func mustGetMetricsMarshaler(tb testing.TB, encoding string, host component.Host
 
 func mustGetTracesMarshaler(tb testing.TB, encoding string, host component.Host) marshaler.TracesMarshaler {
 	tb.Helper()
-	m, err := getTracesMarshaler(encoding, host)
+	m, err := getTracesMarshaler(encoding, host, 0, 0)
 	require.NoError(tb, err)
 	return m
 }

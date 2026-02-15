@@ -172,7 +172,7 @@ func newTracesExporter(config Config, set exporter.Settings) *kafkaExporter[ptra
 		config.PartitionTracesByID = false
 	}
 	return newKafkaExporter(config, set, func(host component.Host) (messenger[ptrace.Traces], error) {
-		marshaler, err := getTracesMarshaler(config.Traces.Encoding, host)
+		marshaler, err := getTracesMarshaler(config.Traces.Encoding, host, config.Producer.MaxMessageBytes, 0)
 		if err != nil {
 			return nil, err
 		}
