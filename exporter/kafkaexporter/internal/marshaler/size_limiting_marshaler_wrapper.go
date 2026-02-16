@@ -22,8 +22,8 @@ const minValueSizeBytes = 256
 // into span-level messages when necessary. Size checks use the encoded payload size
 // (final wire form), not pdata size.
 type SizeLimitingTracesMarshaler struct {
-	innerMarshaler         TracesMarshaler
-	maxMessageBytes        int
+	innerMarshaler          TracesMarshaler
+	maxMessageBytes         int
 	estimatedHeaderOverhead int
 }
 
@@ -76,6 +76,8 @@ func (s *SizeLimitingTracesMarshaler) MarshalTraces(td ptrace.Traces) ([]Message
 	}
 	// Re-marshal span-by-span so each message fits. If any single span still exceeds the limit, fail.
 	return s.marshalTracesSpanBySpan(td)
+	// TODO: we'd also only want to call this "break up a kf message that represents a trace into multiple spans" only
+	//   on messages that exceed the size, not all traces as is being done here.
 }
 
 // marshalTracesSpanBySpan produces one message per span using the innerMarshaler.
@@ -113,6 +115,7 @@ func (s *SizeLimitingTracesMarshaler) marshalTracesSpanBySpan(td ptrace.Traces) 
 					out = append(out, m)
 				}
 			}
+
 		}
 	}
 	return out, nil
